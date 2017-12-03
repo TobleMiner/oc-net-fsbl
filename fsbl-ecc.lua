@@ -23,11 +23,15 @@ local last = false
 local symKey = ''
 
 -----MESSAGES-----
--- 0 - ASSOCIATE: "0" + own address + remote address + 32 byte challenge
+-- 0 - ASSOCIATE: "0" + own address + remote address + 32 byte challenge + crypt mode
 -- 1 - ASSOCIATE_RESPONSE: "1" + own address + remote address + 32 byte challenge + ecdsa(privateKey, 1 + own address + remote address + 32 byte challenge + challenge from associate)
 -- 2 - IDENTIFY: "2" + own address + remote address + 32 byte challenge + ecdsa(privateKey, "2" + own address + remote address + 32 byte challenge + challenge from associate response)
 -- 3 - DATA: "3" + own address + remote address + 32 byte challenge + last_segment + iv + len_data + data + ecdsa(privateKey, 1 + own address + remote address + 32 byte challenge from identify)
 -- 4 - ACK: "4" + own address + remote address + 32 byte challenge + ecdsa(privateKey, "2" + own address + remote address + 32 byte challenge + challenge from data)
+
+----CRYPT MODE----
+-- 0 - AES-128 + ECDH + ECDSA
+-- 1 - AES-128 + SHA1-HMAC
 
 local drone = c.proxy(c.list('drone')())
 _G['print'] = drone.setStatusText
@@ -37,7 +41,7 @@ while true do
 	if state == 0 then -- try to associate
 		print('Associating...')
 		cl = r(32)
-		m.send(server, 1, '0' .. a .. server .. cl)
+		m.send(server, 1, '0' .. a .. server .. cl .. '0')
 		state = 1
 	end
 	
