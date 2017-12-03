@@ -15,8 +15,6 @@ local component = require('component')
 local dataCard = component.data
 local modem = component.modem
 
-local privateKey = dataCard.deserializeKey(dataCard.decode64(PRIVATE_KEY), "ec-private")
-
 
 
 local ProgramSource = util.class()
@@ -48,9 +46,9 @@ end
 
 local Client = util.class()
 
-function Client:init(address, keyString, programSource)
+function Client:init(address, key, programSource)
 	self.address = address
-	self.pubKey = dataCard.deserializeKey(dataCard.decode64(keyString), "ec-public")
+	self.key = key
 	self.programSource = programSource
 end
 
@@ -58,22 +56,14 @@ function Client:getAddress()
 	return self.address
 end
 
-function Client:getPubKey()
-	return self.pubKey
+function Client:getKey()
+	return self.key
 end
 
 function Client:getProgram()
 	return self.programSource:getProgram()
 end
 
---------- Clients ------------
-
---[[local randomClient = Client.new('36e0a951-997d-408f-821c-5b29f75320ca', 'MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAESg/9Uke2jzGzf0YgySFrALuWoxw4Fvuq9pg9AWxquReeq7U33Cyhv0uIRu/8e2zGy+gPnaH4GYHMTZ7xBkWXX+txtt0f2ajWFkm32v0EDX0VzkP0J0gJKVFTjzRsfKti', 
-StringProgramSource.new('function callMeMaybe() print("Hello World") end; callMeMaybe()'))]]
-local randomClient = Client.new('fca5e547-77ab-4580-bb39-dfdd91ba53bc', 'MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAESg/9Uke2jzGzf0YgySFrALuWoxw4Fvuq9pg9AWxquReeq7U33Cyhv0uIRu/8e2zGy+gPnaH4GYHMTZ7xBkWXX+txtt0f2ajWFkm32v0EDX0VzkP0J0gJKVFTjzRsfKti', 
-FileProgramSource.new('woodchuck.lua'))
-
---------- Clients ------------
 
 local State = {}
 
@@ -88,11 +78,157 @@ MESSAGE.IDENTIFY = '2'
 MESSAGE.DATA = '3'
 MESSAGE.ACK = '4'
 
+local CryptoHandler = util.class()
+
+function CryptoHandler:init(dataCard)
+	self.dataCard = dataCard
+	self.clients = {}
+end
+
+function CryptoHandler:addClient(client)
+	self.clients[client:getAddress()] = client
+end
+
+function CryptoHandler:getClient(address)
+	return self.clients[address]
+end
+
+function CryptoHandler:createSessionCryptoHandler(session)
+	return self.SessionCryptoHandler.new(self, session)
+end
+
+function CryptoHandler:getDataCard()
+	return self.dataCard
+end
+
+function CryptoHandler.getIdentifier()
+	error('CryptoHandler.getIdentifier() not implemented')
+end
+
+
+local SessionCryptoHandler = util.class()
+
+function SessionCryptoHandler:init(cryptoHandler, session)
+	self.cryptoHandler = cryptoHandler
+	self.session = session
+end
+
+function SessionCryptoHandler:getSymmetricKey(key)
+	error('SessionCryptoHandler:getSymmetricKey(key) not implemented')
+end
+
+function SessionCryptoHandler:sign(msg)
+	error('SessionCryptoHandler:sign(msg) not implemented')
+end
+
+function SessionCryptoHandler:checkSign(msg, key, signature)
+	error('SessionCryptoHandler:checkSign(msg, key, signature) not implemented')
+end
+
+
+
+local EccCryptoHandler = util.class(CryptoHandler)
+
+function EccCryptoHandler:init(dataCard, privateKey)
+	self:getClass().getSuperClass().init(self, dataCard)
+	self.privateKey = dataCard.deserializeKey(dataCard.decode64(privateKey), "ec-private")
+end
+
+function EccCryptoHandler:getPrivateKey()
+	return self.privateKey
+end
+
+function EccCryptoHandler.getIdentifier()
+	return '0'
+end
+
+
+EccCryptoHandler.SessionCryptoHandler = util.class(SessionCryptoHandler)
+
+function EccCryptoHandler.SessionCryptoHandler:init(cryptoHandler, session)
+	self:getClass().getSuperClass().init(self, cryptoHandler, session)
+	self.pubKey = cryptoHandler:getDataCard().deserializeKey(dataCard.decode64(session:getClient():getKey()), "ec-public")
+	self.symmetricKey = cryptoHandler:getDataCard().ecdh(self.cryptoHandler:getPrivateKey(), self.pubKey):sub(1, 16)
+end
+
+function EccCryptoHandler.SessionCryptoHandler:sign(msg)
+	return self.cryptoHandler:getDataCard().ecdsa(msg, self.cryptoHandler:getPrivateKey())
+end
+
+function EccCryptoHandler.SessionCryptoHandler:checkSign(msg, signature)
+	return self.cryptoHandler:getDataCard().ecdsa(msg, self.pubKey, signature)
+end
+
+function EccCryptoHandler.SessionCryptoHandler:getSymmetricKey()
+	return self.symmetricKey
+end
+
+
+
+local SymmetricCryptoHandler = util.class(CryptoHandler)
+
+function SymmetricCryptoHandler.getIdentifier()
+	return '1'
+end
+
+
+SymmetricCryptoHandler.SessionCryptoHandler = util.class(SessionCryptoHandler)
+
+function SymmetricCryptoHandler.SessionCryptoHandler:init(cryptoHandler, session)
+	self:getClass().getSuperClass().init(self, cryptoHandler, session)
+	self.key = cryptoHandler:getDataCard().decode64(session:getClient():getKey())
+end
+
+function SymmetricCryptoHandler.SessionCryptoHandler:getSymmetricKey()
+	return self.key
+end
+
+local ipad = ''
+local opad = ''
+for i=1,64 do
+	ipad = ipad .. '\x36'
+	opad = opad .. '\x5c'
+end
+
+local function xorn(data, pad)
+	assert(#data == #pad, 'Length of data and padding must match')
+	res = ''
+	for i=1,#data do
+		res = res .. string.char(bit32.bxor(data:byte(i), pad:byte(i)))
+	end
+	return res
+end
+
+local function hmacSha256(dataCard, msg, key)
+	local h = dataCard.sha256
+	if #key < 64 then
+		for i=#key,63 do
+			key = key .. '\x00'
+		end
+	elseif #key > 64 then
+		key = h(key)
+	end
+	
+	return h(xorn(key, opad) .. h(xorn(key, ipad) .. msg))
+end
+
+function SymmetricCryptoHandler.SessionCryptoHandler:sign(msg)
+	return hmacSha256(self.cryptoHandler:getDataCard(), msg, self.key)
+end
+
+-- TODO: Replace with constant time or(xorn()) 
+function SymmetricCryptoHandler.SessionCryptoHandler:checkSign(msg, signature)
+	return self:sign(msg) == signature
+end
+
+
+
 local Session = util.class()
 
 function Session:init(server, client, channel, dataCard, modem)
 	self.logger = Logger.new('Session ' .. client:getAddress(), DEBUG_LEVEL)
 	self.server = server
+	self.sessionCryptoHandler = nil
 	self.client = client
 	self.channel = channel
 	self.challengeTx = nil
@@ -100,7 +236,6 @@ function Session:init(server, client, channel, dataCard, modem)
 	self.state = State.IDLE
 	self.dataCard = dataCard
 	self.modem = modem
-	self.symKey = dataCard.ecdh(privateKey, client:getPubKey()):sub(1, 16)
 	self.dataOffset = 0
 	self.timeout = nil
 end
@@ -117,7 +252,7 @@ function Session:handle(msgType, msg, localAddress, remoteAddress)
 			self:setChallengeRx(rxChallenge)
 			
 			local response = MESSAGE.ASSOCIATE_RESPONSE .. localAddress .. remoteAddress .. rxChallenge
-			response = response .. self.dataCard.ecdsa(response .. txChallenge, privateKey)
+			response = response .. self.sessionCryptoHandler:sign(response .. txChallenge)
 			
 			self:setState(State.ASSOCIATED)
 			
@@ -131,7 +266,7 @@ function Session:handle(msgType, msg, localAddress, remoteAddress)
 			assert(msg:sub(38, 73) == localAddress, 'Invalid local address') -- check our address
 			
 			local signature = msg:sub(106, #msg)
-			assert(self.dataCard.ecdsa(msg:sub(1, 105) .. self:getChallengeRx(), self.client:getPubKey(), signature), 'Invalid signature')
+			assert(self.sessionCryptoHandler:checkSign(msg:sub(1, 105) .. self:getChallengeRx(), signature), 'Invalid signature')
 
 			self:setState(State.TRUSTED)
 			
@@ -148,7 +283,7 @@ function Session:handle(msgType, msg, localAddress, remoteAddress)
 			assert(msg:sub(38, 73) == localAddress, 'Invalid local address') -- check our address
 			
 			local signature = msg:sub(106, #msg)
-			assert(self.dataCard.ecdsa(msg:sub(1, 105) .. self:getChallengeRx(), self.client:getPubKey(), signature), 'Invalid signature')
+			assert(self.sessionCryptoHandler:checkSign(msg:sub(1, 105) .. self:getChallengeRx(), signature), 'Invalid signature')
 
 			self:setChallengeRx(self:genChallenge())
 			self:setChallengeTx(msg:sub(74, 105))
@@ -177,12 +312,12 @@ function Session:sendSegment(localAddress)
 	
 	local data = program:sub(offset + 1, offset + lengthSegment)
 	local iv = self:genIV()
-	local dataEnc = dataCard.encrypt(data, self:getSymmetricKey(), iv)
+	local dataEnc = dataCard.encrypt(data, self.sessionCryptoHandler:getSymmetricKey(), iv)
 	local dataLen = #dataEnc
 	self.logger:debug(dataLen)
 	local response = MESSAGE.DATA .. localAddress .. self:getClient():getAddress() .. self:getChallengeRx() .. (lastSegment and '1' or '0')  .. iv .. string.char(bit32.band(bit32.rshift(dataLen, 8), 0xFF)) .. string.char(bit32.band(dataLen, 0xFF)) .. dataEnc
 	self.logger:debug(self:getChallengeTx())
-	local signature = dataCard.ecdsa(response .. self:getChallengeTx(), privateKey)
+	local signature = self.sessionCryptoHandler:sign(response .. self:getChallengeTx())
 	response = response .. signature
 	self.logger:info(string.format('Sending chunk %d/%d (%d)', math.ceil((offset + lengthSegment) / DATA_CHUNK_SIZE), math.ceil(#program / DATA_CHUNK_SIZE), lengthSegment))
 	self.modem.send(self:getClient():getAddress(), self.channel, response)	
@@ -227,16 +362,16 @@ function Session:setChallengeRx(challenge)
 	self.challengeRx = challenge
 end
 
-function Session:getSymmetricKey()
-	return self.symKey
-end
-
 function Session:getDataOffset()
 	return self.dataOffset
 end
 
 function Session:setDataOffset(offset)
 	self.dataOffset = offset
+end
+
+function Session:setSessionCryptoHandler(handler)
+	self.sessionCryptoHandler = handler
 end
 
 function Session:resetTimeout()
@@ -277,31 +412,32 @@ function FSBLServer:init(dataCard, modem, channel, txPower)
 	self.channel = channel or 1
 	self.txPower = txPower or 100
 	self.sessions = {}
-	self.clients = {}
+	self.cryptoHandlers = {}
 	self.logger = Logger.new('FSBL', DEBUG_LEVEL)
 end
 
-function FSBLServer:createSession(client)
+function FSBLServer:createSession(client, cryptoHandler)
 	local session = Session.new(self, client, self.channel, self.dataCard, self.modem)
+	session:setSessionCryptoHandler(cryptoHandler:createSessionCryptoHandler(session))
 	self.logger:info('Creating session for '..client:getAddress())
 	self.sessions[client:getAddress()] = session
 	return session
 end
 
-function FSBLServer:getSession(client)
-	return self.sessions[client:getAddress()]
+function FSBLServer:getSession(address)
+	return self.sessions[address]
 end
 
 function FSBLServer:removeSession(session)
 	self.sessions[session:getClient():getAddress()] = nil
 end
 
-function FSBLServer:addClient(client)
-	self.clients[client:getAddress()] = client
+function FSBLServer:addCryptoHandler(cryptoHandler)
+	self.cryptoHandlers[cryptoHandler.getIdentifier()] = cryptoHandler
 end
 
-function FSBLServer:getClient(address)
-	return self.clients[address]
+function FSBLServer:getCryptoHandler(cryptoId)
+	return self.cryptoHandlers[cryptoId]
 end
 
 function FSBLServer:run()
@@ -312,23 +448,32 @@ function FSBLServer:run()
 		if event == 'modem_message' then
 			local success, err = pcall(function()
 				assert(type(msg) == 'string', 'Invalid message, string expected')
-				local client = self:getClient(remoteAddress)
-				
-				if not client then
-					error(string.format("No client for address '%s' found", remoteAddress))
-				end
 				
 				local msgType = msg:sub(1,1)
 				if msgType == MESSAGE.ASSOCIATE then
 					self.logger:debug('Assoc received')
 					
-					if self:getSession(client) then
+					if self:getSession(remoteAddress) then
 						error(string.format("Session for '%s' already exists, ignoring association request", remoteAddress))					
 					end
+					
+					local cryptoId = msg:sub(#msg, #msg)
+					local cryptoHandler = self:getCryptoHandler(cryptoId)
+					
+					if not cryptoHandler then
+						error(string.format("No crypto handler for id '%s' found", cryptoId))
+					end
+					
+					local client = cryptoHandler:getClient(remoteAddress)
+				
+					if not client then
+						error(string.format("No client for address '%s' found", remoteAddress))
+					end
 
-					self:createSession(client):handle(msgType, msg, localAddress, remoteAddress)			
+					self:createSession(client, cryptoHandler):handle(msgType, msg, localAddress, remoteAddress)			
 				else
-					local session = self:getSession(client)
+					
+					local session = self:getSession(remoteAddress)
 					assert(session, "No session")
 
 					session:handle(msgType, msg, localAddress, remoteAddress)
@@ -342,6 +487,8 @@ function FSBLServer:run()
 end
 
 local server = FSBLServer.new(dataCard, modem, BOOT_PORT, 100)
-server:addClient(Client.new('fca5e547-77ab-4580-bb39-dfdd91ba53bc', 'MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAESg/9Uke2jzGzf0YgySFrALuWoxw4Fvuq9pg9AWxquReeq7U33Cyhv0uIRu/8e2zGy+gPnaH4GYHMTZ7xBkWXX+txtt0f2ajWFkm32v0EDX0VzkP0J0gJKVFTjzRsfKti', 
+local eccCryptoHandler = EccCryptoHandler.new(dataCard, PRIVATE_KEY)
+eccCryptoHandler:addClient(Client.new('fca5e547-77ab-4580-bb39-dfdd91ba53bc', 'MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAESg/9Uke2jzGzf0YgySFrALuWoxw4Fvuq9pg9AWxquReeq7U33Cyhv0uIRu/8e2zGy+gPnaH4GYHMTZ7xBkWXX+txtt0f2ajWFkm32v0EDX0VzkP0J0gJKVFTjzRsfKti', 
 FileProgramSource.new('woodchuck.lua')))
+server:addCryptoHandler(eccCryptoHandler)
 server:run()
