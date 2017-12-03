@@ -487,8 +487,13 @@ function FSBLServer:run()
 end
 
 local server = FSBLServer.new(dataCard, modem, BOOT_PORT, 100)
+
 local eccCryptoHandler = EccCryptoHandler.new(dataCard, PRIVATE_KEY)
-eccCryptoHandler:addClient(Client.new('fca5e547-77ab-4580-bb39-dfdd91ba53bc', 'MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAESg/9Uke2jzGzf0YgySFrALuWoxw4Fvuq9pg9AWxquReeq7U33Cyhv0uIRu/8e2zGy+gPnaH4GYHMTZ7xBkWXX+txtt0f2ajWFkm32v0EDX0VzkP0J0gJKVFTjzRsfKti', 
-FileProgramSource.new('woodchuck.lua')))
+eccCryptoHandler:addClient(Client.new('fca5e547-77ab-4580-bb39-dfdd91ba53bc', 'MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAESg/9Uke2jzGzf0YgySFrALuWoxw4Fvuq9pg9AWxquReeq7U33Cyhv0uIRu/8e2zGy+gPnaH4GYHMTZ7xBkWXX+txtt0f2ajWFkm32v0EDX0VzkP0J0gJKVFTjzRsfKti', FileProgramSource.new('woodchuck.lua')))
 server:addCryptoHandler(eccCryptoHandler)
+
+local symCryptoHandler = SymmetricCryptoHandler.new(dataCard)
+symCryptoHandler:addClient(Client.new('36e0a951-997d-408f-821c-5b29f75320ca', '4qInyb1WQ5DDrWvsWpbWww==', FileProgramSource.new('woodchuck.lua')))
+
+server:addCryptoHandler(symCryptoHandler)
 server:run()
