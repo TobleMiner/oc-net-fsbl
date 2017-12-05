@@ -5,6 +5,8 @@ local a = m.address
 local r = d.random
 local e = d.ecdsa
 
+assert(d.deserializeKey, 'Data card must be tier 3')
+
 local server = '02092c46-1a19-4751-ab21-648aa7adf15f'
 local serverKey = d.deserializeKey(d.decode64('MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAEPMgMMSOVXt3I9Le+PEawc17T5l0kaSViYV2tjrtG40cLuTLD+SC2PY9gMq/7QpetuyRYrfsc5kGbHWwe2Wk1DOdhtBQlyKHuk+YZVanPd71Rs1tETk6VGc2SMBYhyZeU'), "ec-public")
 local key = d.deserializeKey(d.decode64('ME4CAQAwEAYHKoZIzj0CAQYFK4EEACIENzA1AgEBBDDigM/6GNqBVDiud20CAaHncqISsu9NJNqiT14/Y9gMP70sd+hxL/BktwWZpTt9m1g='), "ec-private")
@@ -24,16 +26,7 @@ local smsg = ''
 local last = false
 local symKey = ''
 
------MESSAGES-----
--- 0 - ASSOCIATE: "0" + own address + remote address + 32 byte challenge + crypt mode
--- 1 - ASSOCIATE_RESPONSE: "1" + own address + remote address + 32 byte challenge + ecdsa(privateKey, 1 + own address + remote address + 32 byte challenge + challenge from associate)
--- 2 - IDENTIFY: "2" + own address + remote address + 32 byte challenge + ecdsa(privateKey, "2" + own address + remote address + 32 byte challenge + challenge from associate response)
--- 3 - DATA: "3" + own address + remote address + 32 byte challenge + last_segment + iv + len_data + data + ecdsa(privateKey, 1 + own address + remote address + 32 byte challenge from identify)
--- 4 - ACK: "4" + own address + remote address + 32 byte challenge + ecdsa(privateKey, "2" + own address + remote address + 32 byte challenge + challenge from data)
-
-----CRYPT MODE----
--- 0 - AES-128 + ECDH + ECDSA
--- 1 - AES-128 + SHA1-HMAC
+-- See fsbl_server.lua for message format
 
 local drone = c.proxy(c.list('drone')())
 _G['print'] = drone.setStatusText

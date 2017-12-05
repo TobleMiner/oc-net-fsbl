@@ -5,6 +5,8 @@ local a = m.address
 local r = d.random
 local h = d.sha256
 
+assert(d.decrypt, 'Data card must be at least tier 2')
+
 local server = '02092c46-1a19-4751-ab21-648aa7adf15f'
 local sharedKey = d.decode64('4qInyb1WQ5DDrWvsWpbWww==')
 local txPower = 100
