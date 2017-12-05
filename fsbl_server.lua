@@ -147,7 +147,7 @@ EccCryptoHandler.SessionCryptoHandler = util.class(SessionCryptoHandler)
 
 function EccCryptoHandler.SessionCryptoHandler:init(cryptoHandler, session)
 	self:getClass().getSuperClass().init(self, cryptoHandler, session)
-	self.pubKey = cryptoHandler:getDataCard().deserializeKey(dataCard.decode64(session:getClient():getKey()), "ec-public")
+	self.pubKey = cryptoHandler:getDataCard().deserializeKey(cryptoHandler:getDataCard().decode64(session:getClient():getKey()), "ec-public")
 	self.symmetricKey = cryptoHandler:getDataCard().ecdh(self.cryptoHandler:getPrivateKey(), self.pubKey):sub(1, 16)
 end
 
@@ -312,7 +312,7 @@ function Session:sendSegment(localAddress)
 	
 	local data = program:sub(offset + 1, offset + lengthSegment)
 	local iv = self:genIV()
-	local dataEnc = dataCard.encrypt(data, self.sessionCryptoHandler:getSymmetricKey(), iv)
+	local dataEnc = self.dataCard.encrypt(data, self.sessionCryptoHandler:getSymmetricKey(), iv)
 	local dataLen = #dataEnc
 	self.logger:debug(dataLen)
 	local response = MESSAGE.DATA .. localAddress .. self:getClient():getAddress() .. self:getChallengeRx() .. (lastSegment and '1' or '0')  .. iv .. string.char(bit32.band(bit32.rshift(dataLen, 8), 0xFF)) .. string.char(bit32.band(dataLen, 0xFF)) .. dataEnc
@@ -494,6 +494,8 @@ server:addCryptoHandler(eccCryptoHandler)
 
 local symCryptoHandler = SymmetricCryptoHandler.new(dataCard)
 symCryptoHandler:addClient(Client.new('36e0a951-997d-408f-821c-5b29f75320ca', '4qInyb1WQ5DDrWvsWpbWww==', FileProgramSource.new('woodchuck.lua')))
+symCryptoHandler:addClient(Client.new('fca5e547-77ab-4580-bb39-dfdd91ba53bc', '4qInyb1WQ5DDrWvsWpbWww==', FileProgramSource.new('woodchuck.lua')))
+symCryptoHandler:addClient(Client.new('000092ed-f26b-44df-b223-424b4cb4ef59', '4qInyb1WQ5DDrWvsWpbWww==', FileProgramSource.new('woodchuck.lua')))
 
 server:addCryptoHandler(symCryptoHandler)
 server:run()
