@@ -7,6 +7,8 @@ local h = d.sha256
 
 local server = '02092c46-1a19-4751-ab21-648aa7adf15f'
 local sharedKey = d.decode64('4qInyb1WQ5DDrWvsWpbWww==')
+local txPower = 100
+local fsblChannel = 1
 
 local ipad = ''
 local opad = ''
@@ -53,7 +55,8 @@ local last = false
 local drone = c.proxy(c.list('drone')())
 _G['print'] = drone.setStatusText
 
-m.open(1)
+m.setStrength(txPower)
+m.open(fsblChannel)
 while true do
 	if state == 0 then -- try to associate
 		print('Associating...')

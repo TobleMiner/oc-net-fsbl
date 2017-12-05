@@ -8,6 +8,8 @@ local e = d.ecdsa
 local server = '02092c46-1a19-4751-ab21-648aa7adf15f'
 local serverKey = d.deserializeKey(d.decode64('MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAEPMgMMSOVXt3I9Le+PEawc17T5l0kaSViYV2tjrtG40cLuTLD+SC2PY9gMq/7QpetuyRYrfsc5kGbHWwe2Wk1DOdhtBQlyKHuk+YZVanPd71Rs1tETk6VGc2SMBYhyZeU'), "ec-public")
 local key = d.deserializeKey(d.decode64('ME4CAQAwEAYHKoZIzj0CAQYFK4EEACIENzA1AgEBBDDigM/6GNqBVDiud20CAaHncqISsu9NJNqiT14/Y9gMP70sd+hxL/BktwWZpTt9m1g='), "ec-private")
+local txPower = 100
+local fsblChannel = 1
 
 -----STATES------
 -- 0 - ASSOCIATE
@@ -36,7 +38,8 @@ local symKey = ''
 local drone = c.proxy(c.list('drone')())
 _G['print'] = drone.setStatusText
 
-m.open(1)
+m.setStrength(txPower)
+m.open(fsblChannel)
 while true do
 	if state == 0 then -- try to associate
 		print('Associating...')
